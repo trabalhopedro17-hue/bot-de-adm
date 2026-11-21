@@ -1,0 +1,109 @@
+
+import os
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=discord.Intents.default()
+)
+
+partidas = {}
+
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"Bot conectado: {bot.user}")
+
+@bot.tree.command(name="partida", description="Criar uma competição")
+@app_commands.checks.has_permissions(administrator=True)
+async def partida(interaction: discord.Interaction, jogador1: str, jogador2: str):
+    partidas[interaction.guild_id] = {
+        "jogadores": [jogador1, jogador2],
+        "rodadas": [],
+        "encerrada": False
+    }
+
+    await interaction.response.send_message(
+        f"🏆 **NOVA COMPETIÇÃO**\n\n"
+        f"🔵 Jogador 1: {jogador1}\n"
+        f"🔴 Jogador 2: {jogador2}\n"
+        f"🎮 Meta: 7 vitórias"
+    )
+
+@bot.tree.command(name="rodada", description="Registrar uma vitória")
+@app_commands.checks.has_permissions(administrator=True)
+async def rodada(interaction: discord.Interaction, vencedor: str):
+    atual = partidas.get(interaction.guild_id)
+
+    if not atual or atual["encerrada"]:
+        await interaction.response.send_message(
+            "Não existe competição ativa.",
+            ephemeral=True
+        )
+        return
+
+    if vencedor not in atual["jogadores"]:
+        await interaction.response.send_message(
+            "Jogador não encontrado.",
+            ephemeral=True
+        )
+        return
+
+    atual["rodadas"].append(vencedor)
+
+    placar = {
+        j: atual["rodadas"].count(j)
+        for j in atual["jogadores"]
+    }
+
+    total = len(atual["rodadas"])
+
+    texto = (
+        f"🎮 **RODADA {total}**\n"
+        f"🏆 Vitória: {vencedor}\n\n"
+        f"🔵 {atual['jogadores'][0]}: {placar[atual['jogadores'][0]]}/7\n"
+        f"🔴 {atual['jogadores'][1]}: {placar[atual['jogadores'][1]]}/7"
+    )
+
+    campeao = next(
+        (j for j, pontos in placar.items() if pontos >= 7),
+        None
+    )
+
+    if campeao:
+        atual["encerrada"] = True
+        texto += f"\n\n🥇 **CAMPEÃO: {campeao}!**"
+
+    await interaction.response.send_message(texto)
+
+@bot.tree.command(name="resultado", description="Consultar placar")
+async def resultado(interaction: discord.Interaction):
+    atual = partidas.get(interaction.guild_id)
+
+    if not atual:
+        await interaction.response.send_message(
+            "Nenhuma competição cadastrada."
+        )
+        return
+
+    texto = "🏆 **PLACAR ATUAL**\n\n"
+
+    for jogador in atual["jogadores"]:
+        pontos = atual["rodadas"].count(jogador)
+        texto += f"👤 {jogador}: {pontos}/7 vitórias\n"
+
+    texto += f"\n🎮 Rodadas disputadas: {len(atual['rodadas'])}"
+
+    if atual["encerrada"]:
+        texto += "\n\n✅ Competição encerrada."
+
+    await interaction.response.send_message(texto)
+
+token = os.getenv("DISCORD_TOKEN")
+
+if not token:
+    raise RuntimeError("Configure DISCORD_TOKEN.")
+
+bot.run(token)
